@@ -1,0 +1,48 @@
+{
+  "name": "llm-mock",
+  "version": "0.6.0",
+  "description": "Enterprise-grade LLM mock server for local and CI: scenarios, faults, latency, contracts, VCR. Supports standalone server and Express middleware.",
+  "type": "module",
+  "bin": {
+    "llm-mock": "./bin/llm-mock.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "start": "node ./bin/llm-mock.js ./examples/config.mjs",
+    "dev": "node ./bin/llm-mock.js ./examples/config.mjs --env local --scenario checkout-graph",
+    "test": "node --test --experimental-test-coverage"
+  },
+  "keywords": [
+    "llm",
+    "mock",
+    "llm-mock",
+    "mock-llm",
+    "testing",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "scenarios",
+    "faults",
+    "vcr",
+    "middleware",
+    "express"
+  ],
+  "author": "mapredux@gmail.com",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.1",
+    "ajv": "^8.17.1",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "minimist": "^1.2.8",
+    "uuid": "^9.0.1"
+  }
+}
