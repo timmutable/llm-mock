@@ -1,6 +1,6 @@
 {
   "name": "llm-mock",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Enterprise-grade LLM mock server for local and CI: scenarios, faults, latency, contracts, VCR. Supports standalone server and Express middleware.",
   "type": "module",
   "bin": {
@@ -38,7 +38,6 @@
     "node": ">=18.17"
   },
   "dependencies": {
-    "@google/genai": "^1.30.0",
     "ajv": "^8.17.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
