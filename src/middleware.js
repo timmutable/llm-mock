@@ -50,9 +50,13 @@ export async function createLlmMockRouter(config) {
     return res.json(wireResponse);
   });
 
+  router.get("/_inspect_graph_state", (req, res) => {
+    return res.json(scenarios.inspect());
+  });
+
   // HTTP mocks
   router.all("*", (req, res) => {
-    const activeProfile = scenarioRunner.getActiveHttpProfile();
+    const activeProfile = scenarios.getActiveHttpProfile();
 
     const profileMocks =
       activeProfile && config.httpProfiles
