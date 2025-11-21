@@ -47,7 +47,11 @@ function buildPatternRegex(pattern, allowLooseNoise = false) {
  */
 export function compileTemplateRegex(
   pattern,
-  options = { looseSpaces: true, caseInsensitive: true, trimVar: true }
+  options = {
+    looseSpaces: true,
+    caseInsensitive: true,
+    trimVar: true,
+  }
 ) {
   const {
     looseSpaces = true,

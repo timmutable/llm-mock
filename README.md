@@ -1,535 +1,594 @@
+# llm-mock
 
-# LLM Mock
+**llm-mock** is an enterprise-grade mocking server for applications that depend on LLMs and downstream HTTP APIs.
 
-**LLM Mock** is an enterprise-grade, deterministic, fully offline mock for LLM providers such as OpenAI, Gemini, and Ollama.  
-It enables full-stack automated testing—CI, integration tests, E2E flows, multi-agent orchestration flows, and local development—*without hitting real LLM APIs, without API keys, and without nondeterministic model drift.*
+It is designed for:
 
-The star of the system is **Scenario Graphs**: branching, stateful, multi-step scripted interactions that emulate how your LLM-powered agents and workflows behave in production.
+- Local development without API keys
+- Deterministic CI / integration / E2E tests
+- Multi-step, multi-turn conversational flows
+- Mocking both LLM calls *and* your own REST dependencies
 
-Other features include:
-
-- Linear scenarios  
-- Case-based prompt → response mocking  
-- HTTP downstream API mocks (for your REST dependencies)  
-- Fault injection  
-- Delays  
-- JSON-schema contract validation  
-- VCR request recording  
-- Express middleware integration  
+llm-mock speaks **OpenAI-style** and **Gemini-style** HTTP APIs, so your app can simply point its `baseURL` or `baseUrl` at `http://localhost:11434` and run against mocks instead of real models.
 
 ---
 
-# 📌 Table of Contents
+## Features
 
-1. [Overview](#overview)  
-2. [Installation](#installation)  
-3. [Quick Start](#quick-start)  
-4. [Scenario Graphs](#scenario-graphs)  
-5. [Linear Scenarios](#linear-scenarios)  
-6. [Case-Based Prompt Mocks](#case-based-prompt-mocks)  
-7. [HTTP Mocking](#http-mocking)  
-8. [Provider Compatibility](#provider-compatibility)  
-9. [Fault Injection](#fault-injection)  
-10. [Delays](#delays)  
-11. [Contract Validation](#contract-validation)  
-12. [VCR Recording](#vcr-recording)  
-13. [Express Middleware](#express-middleware)  
-14. [CLI Reference](#cli-reference)  
-15. [Full DSL & Config Documentation](#full-dsl--config-documentation)
-16. [License](#license)  
+- **Scenario graphs**  
+  Model complex flows as branching state machines (e.g. onboarding, checkout, experiment creation).
 
----
+- **Per-node sequences**  
+  Inside any graph node you can define a small linear script of messages to send in order.
 
-# Overview
+- **Case-based mocks**  
+  Simple prompt → response mappings using patterns like `"explain {{topic}} simply"`.
 
-Applications today rely on LLM outputs for:
+- **HTTP mocks**  
+  Mock your own REST dependencies (GitHub Actions, webhooks, S3, internal services).
 
-- multi-step conversations  
-- agent tool calls  
-- chain-of-thought workflows  
-- structured output generation  
-- code generation  
-- orchestration logic  
-- multi-agent routing  
+- **Configurable matching engine (for LLM text)**  
+  - Template patterns with `{{vars}}`
+  - Simple guards (`equals`, `includes`, `oneOf`, `matches`)
 
-This makes **local testing**, **CI**, and **E2E automation** incredibly fragile unless you have:
+- **Fault injection & latency**  
+  - Add artificial delays
+  - Override HTTP status codes
+  - Attach custom `fault` metadata (handled by your app)
 
-- deterministic outputs  
-- reproducible flows  
-- fast execution  
-- offline capability  
-- stateful multi-turn interactions  
+- **JSON / YAML / JS config support**  
+  - Author configs in **YAML** or **JSON**
+  - Or use the **JS/TS DSL** for maximum flexibility
 
-LLM mock provides all of this.
+- **Express middleware**  
+  Optionally mount llm-mock into an existing Express app.
+
+- **VCR-style recording (cassettes)**  
+  Record requests/responses to JSONL for inspection (if enabled in config).
 
 ---
 
-# Installation
+## Installation
 
-```
-npm install llm-mock --save-dev
+```bash
+npm install --save-dev llm-mock
 ```
 
-Or use npx:
+You can run it via `npx`:
 
+```bash
+npx llm-mock ./mocks/config.yaml
 ```
-npx llm-mock ./mocks/config.mjs
+
+By default the server listens on `http://localhost:11434`.
+
+---
+
+## Quick start (OpenAI-style)
+
+Example test script:
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "mock-llm",
+  baseURL: "http://localhost:11434",
+});
+
+const response = await client.chat.completions.create({
+  model: "gpt-4o",
+  messages: [
+    { role: "system", content: "You are a helpful assistant." },
+    { role: "user", content: "Explain TypeScript simply." },
+  ],
+});
+
+console.log(response.choices[0].message?.content);
+```
+
+As long as your config defines a matching **scenario** or **case**, this will return a deterministic mock response.
+
+---
+
+## Config formats overview
+
+llm-mock supports **three** configuration styles:
+
+1. **YAML** (recommended for most teams)
+2. **JSON** (machine-friendly, same shape as YAML)
+3. **JS/TS DSL** (for dynamic or computed mocks)
+
+Internally, YAML/JSON configs are normalized via `fromPlainConfig()` into the same shape as the JS DSL.
+
+### Top-level keys
+
+All formats share the same top-level structure:
+
+```yaml
+server:
+  port: 11434
+  delayMs: 0        # optional default delay for all responses
+
+env: local          # optional
+useScenario: happy-path
+
+defaults:
+  fallback: "No mock available."
+
+scenarios: []       # list of scenario graphs
+cases: []           # optional simple pattern → reply mocks
+httpMocks: []       # global HTTP mocks
+httpProfiles: {}    # named HTTP-mock profiles (overrides)
+contracts: {}       # optional JSON schema validation
+vcr: {}             # optional VCR recording config
+```
+
+In JSON, the shape is identical:
+
+```json
+{
+  "server": { "port": 11434, "delayMs": 0 },
+  "env": "local",
+  "useScenario": "happy-path",
+  "defaults": { "fallback": "No mock available." },
+  "scenarios": [],
+  "cases": [],
+  "httpMocks": [],
+  "httpProfiles": {},
+  "contracts": {},
+  "vcr": {}
+}
 ```
 
 ---
 
-# Quick Start
+## Scenario graphs (YAML)
 
-### **config.mjs**
+A **scenario** is a named graph representing a multi-step flow. You select which one is active via `useScenario` or the `--scenario` CLI flag.
+
+Basic shape:
+
+```yaml
+scenarios:
+  - id: happy-path
+    httpProfile: default    # optional – see HTTP profiles below
+    start: ask-intent       # starting state ID
+    steps:
+      ask-intent:
+        - when: "i want to create an experiment"
+          sequence:
+            - kind: chat
+              reply: "Great, let's create an experiment."
+            - kind: chat
+              reply: "First, what should we call this experiment?"
+          next: collect-name
+
+      collect-name:
+        - when: "the experiment name is {{expName}}"
+          sequence:
+            - kind: chat
+              replyTemplate: "Nice, '{{expName}}' sounds interesting."
+            - kind: chat
+              reply: "I'll trigger the GitHub workflow to set it up."
+          next: trigger-github
+
+      trigger-github:
+        - when: "run the github workflow"
+          sequence:
+            - kind: chat
+              reply: "Triggering GitHub action (mock)..."
+            - kind: chat
+              reply: "The action completed successfully. Your experiment is ready."
+          next: end-success
+
+      end-success:
+        final: true
+```
+
+Key concepts:
+
+- `id`: Scenario identifier (e.g. `checkout`, `onboarding`, `github-action-fail`).
+- `start`: Name of the initial state node.
+- `httpProfile` (optional): default HTTP profile to use for this scenario.
+- `steps`: object mapping **stateId → either**:
+  - `{ final: true }` – terminal node, or
+  - an **array of rules** for that state.
+
+### Rules (branches)
+
+Each rule describes what happens when the user says something that matches `when` while in a given state:
+
+```yaml
+ask-intent:
+  - when: "i want to create an experiment"
+    guard:
+      op: includes
+      var: intent
+      value: "experiment"   # optional guard
+    sequence:
+      - kind: chat
+        reply: "Great, let's create an experiment."
+      - kind: chat
+        reply: "First, what should we call this experiment?"
+    next: collect-name
+    httpProfile: default     # optional
+```
+
+Fields:
+
+- `when` (required): pattern string, may contain `{{variables}}` captured from user text.
+- `guard` (optional): extra boolean condition based on extracted variables.
+- `sequence` (optional): array of child steps (local linear script).
+- `reply` / `replyTemplate` (optional): shorthand for a single-step `sequence`.
+- `next` (optional): next state ID. If omitted and not `final`, the state remains unchanged.
+- `httpProfile` (optional): overrides the scenario’s HTTP profile for this branch.
+- `delayMs`, `fault` (optional): per-branch latency / fault injection metadata.
+- `kind` (optional): usually `"chat"`, but reserved for future types like `"tools"`.
+
+### Guards
+
+Guards are compiled to JavaScript functions `(vars, ctx) => boolean`. Supported operators:
+
+```yaml
+guard:
+  op: equals     # equals | includes | oneOf | matches
+  var: name      # which captured variable to read
+  value: "approved"
+```
+
+- `equals`: case-insensitive equality
+- `includes`: substring match
+- `oneOf`: check against a list
+
+```yaml
+guard:
+  op: oneOf
+  var: status
+  values: ["approved", "ok", "yes"]
+```
+
+- `matches`: regular expression test
+
+```yaml
+guard:
+  op: matches
+  var: email
+  value: ".*@example\.com$"
+```
+
+### Sequence items
+
+`sequence` lets you script a mini linear flow inside a single state:
+
+```yaml
+sequence:
+  - kind: chat
+    replyTemplate: "Nice to meet you, {{name}}."
+  - kind: chat
+    reply: "Let me verify a few details."
+```
+
+Each item supports:
+
+- `kind`: `"chat"` (currently the only supported kind).
+- `reply`: static string.
+- `replyTemplate`: string with `{{vars}}` interpolation.
+- `delayMs`: optional delay before sending.
+- `fault`: optional fault metadata.
+- `result`: optional structured data for future tool-style results.
+
+---
+
+## Scenario graphs (JSON)
+
+The JSON representation is identical in structure. Example (trimmed):
+
+```json
+{
+  "scenarios": [
+    {
+      "id": "happy-path",
+      "httpProfile": "default",
+      "start": "ask-intent",
+      "steps": {
+        "ask-intent": [
+          {
+            "when": "i want to create an experiment",
+            "sequence": [
+              { "kind": "chat", "reply": "Great, let's create an experiment." },
+              { "kind": "chat", "reply": "First, what should we call this experiment?" }
+            ],
+            "next": "collect-name"
+          }
+        ],
+        "collect-name": [
+          {
+            "when": "the experiment name is {{expName}}",
+            "sequence": [
+              { "kind": "chat", "replyTemplate": "Nice, '{{expName}}' sounds interesting." },
+              { "kind": "chat", "reply": "I'll trigger the GitHub workflow to set it up." }
+            ],
+            "next": "trigger-github"
+          }
+        ],
+        "end-success": { "final": true }
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Cases (simple pattern → reply mocks)
+
+Cases are global and apply across scenarios. They are a simpler way to map a prompt to a reply without modelling a full graph.
+
+YAML:
+
+```yaml
+cases:
+  - id: explain-simple
+    pattern: "explain {{topic}} simply"
+    replyTemplate: "Simple explanation of {{topic}}."
+```
+
+JSON:
+
+```json
+{
+  "cases": [
+    {
+      "id": "explain-simple",
+      "pattern": "explain {{topic}} simply",
+      "replyTemplate": "Simple explanation of {{topic}}."
+    }
+  ]
+}
+```
+
+At runtime, the pattern engine extracts `topic` and passes it into the handler generated by `fromPlainConfig`.
+
+---
+
+## HTTP mocks
+
+HTTP mocks let you simulate your own REST dependencies such as:
+
+- GitHub Actions dispatch endpoints
+- Internal microservices
+- S3 or other storage APIs
+- Webhooks your app expects to receive
+
+Global HTTP mocks are defined at the top level:
+
+```yaml
+httpMocks:
+  - id: github-dispatch
+    method: POST
+    path: /github/actions/dispatch
+    status: 200
+    body:
+      status: "ok"
+      runId: "mock-run-123"
+
+  - id: github-webhook
+    method: POST
+    path: /webhooks/experiment-complete
+    status: 200
+    body:
+      ok: true
+      experimentId: "exp-mock-123"
+```
+
+Fields:
+
+- `id`: arbitrary label for debugging.
+- `method`: HTTP method, default `"GET"`.
+- `path`: Express-style path, supports `:params` (e.g. `/s3/bucket/:bucket/object/:key`).
+- `status`: HTTP status code (default 200).
+- `body`: static JSON to return.
+- `bodyTemplate`: JSON template with interpolation (see below).
+- `delayMs`: artificial latency before the response.
+- `fault`: arbitrary metadata attached to the mock (consumed by your tests/tools).
+
+### Body templates
+
+You can use `bodyTemplate` to interpolate values from the request:
+
+```yaml
+httpMocks:
+  - id: s3-put
+    method: PUT
+    path: /s3/bucket/:bucket/object/:key
+    status: 200
+    bodyTemplate:
+      ok: true
+      bucket: "{{params.bucket}}"
+      key: "{{params.key}}"
+      size: "{{body.size}}"
+```
+
+Available interpolation sources:
+
+- `params`: path parameters (e.g. `:bucket`, `:key`)
+- `query`: query string parameters
+- `body`: parsed JSON body
+
+---
+
+## HTTP profiles
+
+Sometimes you want different HTTP behaviour depending on the scenario or branch:
+
+- `happy-path`: GitHub and S3 succeed
+- `github-action-fail`: GitHub dispatch returns 500
+- `s3-fail`: S3 upload fails, others succeed
+
+You can express this with **httpProfiles**. Profiles are collections of mocks that override global `httpMocks` when active.
+
+YAML:
+
+```yaml
+httpProfiles:
+  github-fail:
+    - id: github-dispatch
+      method: POST
+      path: /github/actions/dispatch
+      status: 500
+      body:
+        status: "error"
+        message: "Simulated GitHub failure (mock)."
+```
+
+In JSON:
+
+```json
+{
+  "httpProfiles": {
+    "github-fail": [
+      {
+        "id": "github-dispatch",
+        "method": "POST",
+        "path": "/github/actions/dispatch",
+        "status": 500,
+        "body": {
+          "status": "error",
+          "message": "Simulated GitHub failure (mock)."
+        }
+      }
+    ]
+  }
+}
+```
+
+Each profile entry is turned into a `httpWhen()` mock with an attached `options.profile` value equal to the profile name. Your HTTP dispatch logic can then:
+
+1. Determine the active profile (scenario-level, branch-level, or default).
+2. Prefer mocks whose `options.profile` matches that profile.
+3. Fall back to global `httpMocks` (where `profile` is `null`).
+
+> **Note:** If you have not yet wired profiles into your HTTP router, you can still use `httpMocks` alone. `httpProfiles` are forward-compatible and do not interfere with existing behaviour until you opt in.
+
+---
+
+## JSON vs YAML: full config parity
+
+Everything you can express in YAML can be expressed in JSON with the same structure. The only difference is syntax.
+
+- Use YAML for hand-authored configs checked into your repo.
+- Use JSON if the mocks are generated programmatically from other tools.
+
+At runtime, both are loaded by the CLI, parsed, then converted via `fromPlainConfig()` into a normalized internal config.
+
+---
+
+## JS/TS DSL (optional)
+
+If you prefer to stay in JavaScript/TypeScript, you can use the small DSL instead of YAML/JSON.
+
+Example `config.mjs`:
 
 ```js
-import { define, scenario, caseWhen, httpGet } from "llm-mock";
+import { define, scenario, caseWhen, httpWhen } from "../src/dsl.js";
 
 export default define({
   server: { port: 11434 },
-
-  useScenario: "checkout-graph",
+  env: "local",
+  useScenario: "happy-path",
 
   scenarios: [
-    scenario("checkout-graph", {
-      start: "collect-name",
+    scenario("happy-path", {
+      start: "ask-intent",
       steps: {
+        "ask-intent": {
+          branches: [
+            {
+              when: "i want to create an experiment",
+              reply: "Great, let's create an experiment.",
+              next: "collect-name",
+            },
+          ],
+        },
         "collect-name": {
           branches: [
             {
-              when: "my name is {{name}}",
-              if: ({ name }) => name.toLowerCase().includes("declined"),
-              reply: "Your application is declined.",
-              next: "end-declined",
-            },
-            {
-              when: "my name is {{name}}",
-              if: ({ name }) => name.toLowerCase().includes("approved"),
-              reply: "Your application is approved!",
-              next: "end-approved",
-            },
-            {
-              when: "my name is {{name}}",
+              when: "the experiment name is {{expName}}",
               reply: ({ vars }) =>
-                `Thanks ${vars.name}, what's your address?`,
-              next: "collect-address",
+                `Nice, '${vars.expName}' sounds interesting.`,
+              next: "end",
             },
           ],
         },
-
-        "collect-address": {
-          branches: [
-            {
-              when: "my address is {{address}}",
-              reply: ({ vars }) =>
-                `We will contact you at ${vars.address}.`,
-              next: "end-pending",
-            },
-          ],
-        },
-
-        "end-declined": { final: true },
-        "end-approved": { final: true },
-        "end-pending": { final: true },
+        end: { final: true },
       },
     }),
   ],
 
   cases: [
-    caseWhen("explain {{topic}} simply", ({ topic }) =>
-      `Simple explanation of ${topic}.`
-    ),
+    caseWhen("explain {{topic}} simply", (vars) => {
+      return `Simple explanation of ${vars.topic}.`;
+    }),
   ],
 
   httpMocks: [
-    httpGet("/api/user/:id", ({ params }) => ({
-      id: params.id,
-      name: "Mock User",
-    })),
+    httpWhen(
+      { method: "POST", path: "/github/actions/dispatch" },
+      () => ({ status: "ok", runId: "mock-run-123" }),
+      { status: 200 },
+    ),
   ],
-
-  defaults: {
-    fallback: "No mock available.",
-  },
 });
 ```
 
-Run it:
+You can then run:
 
+```bash
+npx llm-mock ./examples/config.mjs
 ```
-npx llm-mock ./config.mjs --scenario checkout-graph
-```
+
+Internally this bypasses `fromPlainConfig()` and uses your JS config as-is.
 
 ---
 
-# Scenario Graphs
+## CLI usage
 
-Scenario Graphs are the primary way to emulate multi-step LLM-driven workflows.
-
-A scenario consists of:
-
-- `start`: the initial state ID
-- `steps`: a mapping of state IDs to state definitions
-- each state contains one or more **branches**
-- each branch defines:
-  - a pattern (`when`)
-  - optional guard (`if`)
-  - reply (`reply`)
-  - next state (`next`)
-  - optional delay (`delayMs`)
-  - optional tool result (`result`)
-  - optional type (`kind`: `"chat"` or `"tools"`)
-
-### Example
-
-```js
-scenario("checkout-graph", {
-  start: "collect-name",
-  steps: {
-    "collect-name": {
-      branches: [
-        {
-          when: "my name is {{name}}",
-          if: ({ name }) => name.toLowerCase().includes("declined"),
-          reply: "Declined.",
-          next: "end-declined",
-        },
-        {
-          when: "my name is {{name}}",
-          if: ({ name }) => name.toLowerCase().includes("approved"),
-          reply: "Approved!",
-          next: "end-approved",
-        },
-        {
-          when: "my name is {{name}}",
-          reply: ({ vars }) => `Hello ${vars.name}. Your address?`,
-          next: "collect-address",
-        },
-      ],
-    },
-
-    "collect-address": {
-      branches: [
-        {
-          when: "my address is {{address}}",
-          reply: ({ vars }) =>
-            `Thanks. We'll mail you at ${vars.address}.`,
-          next: "end-pending",
-        },
-      ],
-    },
-
-    "end-declined": { final: true },
-    "end-approved": { final: true },
-    "end-pending": { final: true },
-  },
-});
+```bash
+npx llm-mock ./mocks/config.yaml   --env local   --port 11434   --scenario happy-path
 ```
 
-### What Scenario Graphs Support
+Supported flags:
 
-- Multi-turn conversation emulation  
-- Conditional routing  
-- Stateful flows  
-- Dynamic replies  
-- Tool-style responses  
-- Terminal states  
-- Deterministic behavior  
+- `--env` / `-e`: environment label (e.g. `local`, `ci`).
+- `--port` / `-p`: HTTP port (overrides `server.port`).
+- `--seed`: numeric seed for deterministic embeddings, etc.
+- `--scenario` / `-s`: which scenario id to activate (overrides `useScenario`).
+- `--testTag`: optional tag passed into the runtime context.
 
 ---
 
-# Linear Scenarios
+## Clean code & extensibility
 
-For simple ordered scripts:
+The core of llm-mock is intentionally small and modular:
 
-```js
-scenario("simple-linear", {
-  steps: [
-    { kind: "chat", reply: "Welcome" },
-    { kind: "chat", reply: "Next" }
-  ]
-});
-```
+- `src/plainConfig.js` – converts YAML/JSON configs into the internal DSL.
+- `src/dsl.js` – tiny helpers for JS-based configs (`scenario`, `caseWhen`, `httpWhen`).
+- `src/scenario.js` – scenario runtime (graph + linear behaviour).
+- `src/providers.js` – OpenAI and Gemini request/response helpers.
+- `src/findHttpMock.js`, `src/matchPathPattern.js` – HTTP mock resolution.
+- `src/middleware.js` – Express router implementing all endpoints.
+- `src/vcr.js` – optional request/response recording.
+- `src/contracts.js` – optional JSON Schema validation wiring.
 
-These run top-to-bottom.
+You can safely extend behaviour by:
 
----
-
-# Case-Based Prompt Mocks
-
-Direct LLM prompt → response mocking:
-
-```js
-caseWhen("summarize {{topic}}", ({ topic }) =>
-  `Summary of ${topic}`
-);
-```
-
-Pattern matching supports:
-
-- Template variables `{{var}}`  
-- Looser lexical matching  
-- Optional fuzzy matching fallback  
+- Adding new `kind` types for scenario steps.
+- Expanding guard operators.
+- Enhancing HTTP dispatch to fully leverage `httpProfiles`.
 
 ---
 
-# HTTP Mocking
-
-Mock downstream REST calls:
-
-```js
-httpGet("/api/user/:id", ({ params }) => ({
-  id: params.id,
-  name: "Mock User",
-}));
-
-httpPost("/api/checkout", ({ body }) => ({
-  status: "ok",
-  orderId: "mock123",
-}));
-```
-
-Works with:
-
-- GET
-- POST
-- PUT
-- DELETE
-- Path params (`:id`)
-- Query params
-- JSON body parsing
-
----
-
-# Provider Compatibility
-
-LLM Mock exposes mock endpoints identical to real providers.
-
-## OpenAI-Compatible
-
-```
-POST /v1/chat/completions
-POST /chat/completions
-POST /v1/responses
-POST /responses
-POST /v1/embeddings
-```
-
-Embeddings return deterministic fake vectors.
-
-## Gemini-Compatible
-
-```
-POST /v1/models/:model:generateContent
-POST /v1alpha/models/:model:generateContent
-POST /v1beta/models/:model:generateContent
-```
-
-## Ollama-Compatible
-
-```
-POST /api/generate
-```
-
----
-
-# Fault Injection
-
-Faults can be attached to any:
-
-- branch  
-- case  
-- HTTP mock  
-
-Examples:
-
-```js
-fault: { type: "timeout" }
-fault: { type: "http", status: 503 }
-fault: { type: "malformed-json" }
-fault: { type: "stream-glitch" }
-```
-
----
-
-# Delays
-
-Simulate real-world latency.
-
-### Global:
-
-```
-server: { delayMs: 200 }
-```
-
-### Per-scenario-state:
-
-```
-delayMs: 500
-```
-
-### Per-HTTP-route:
-
-```
-httpGet("/x", { delayMs: 300 })
-```
-
----
-
-# Contract Validation
-
-Optional JSON-schema validation using **Ajv**.
-
-Modes:
-
-```
-contracts: {
-  mode: "strict" | "warn" | "off"
-}
-```
-
-Validates:
-
-- OpenAI request/response  
-- Gemini request/response  
-- Ollama request/response  
-
----
-
-# VCR Recording
-
-Capture all incoming requests:
-
-```
-npx llm-mock ./config.mjs --record ./recordings
-```
-
-Produces `.jsonl` files containing:
-
-- timestamp
-- provider
-- request JSON
-- response JSON
-
-Perfect for test reproducibility and debugging.
-
----
-
-# Express Middleware
-
-Mount the mock in an existing server:
-
-```js
-import { createLlmMockRouter } from "llm-mock";
-
-const mock = await createLlmMockRouter("./config.mjs");
-
-app.use("/llm-mock", mock.express());
-```
-
-Now you can point you OpenAI or Gemini application to this route.
-
----
-
-# CLI Reference
-
-```
-npx llm-mock ./config.mjs [options]
-
---scenario <id>
---record <dir>
---port <num>
---verbose
-```
-
----
-
-# Full DSL & Config Documentation
-
-## Top-Level `define(config)`
-
-| Field | Description |
-|-------|-------------|
-| `server.port` | Port to run mock provider |
-| `server.delayMs` | Global delay |
-| `useScenario` | Active scenario ID |
-| `scenarios[]` | Scenario definitions |
-| `cases[]` | Case mocks |
-| `httpMocks[]` | HTTP mocks |
-| `defaults.fallback` | Default response text |
-
----
-
-## Scenario Graph DSL
-
-```
-scenario(id, {
-  start: "state",
-  steps: {
-    "state": {
-      branches: [ ... ]
-    },
-    "end": { final: true }
-  }
-})
-```
-
-### Branch Fields
-
-| Field | Description |
-|-------|-------------|
-| `when` | Pattern with template vars |
-| `if(vars, ctx)` | Optional guard |
-| `reply` | String or function |
-| `kind` | `"chat"` or `"tools"` |
-| `result` | For tool-style replies |
-| `next` | Next state ID |
-| `delayMs` | Per-branch delay |
-| `fault` | Fault injection config |
-
----
-
-## Linear Scenario DSL
-
-```
-scenario(id, {
-  steps: [
-    { kind, reply, result, delayMs, fault }
-  ]
-})
-```
-
----
-
-## Case DSL
-
-```
-caseWhen(pattern, handler)
-```
-
----
-
-## HTTP Mocks
-
-```
-httpGet(path, handler)
-httpPost(path, handler)
-httpPut(path, handler)
-httpDelete(path, handler)
-```
-
-Handler receives:
-
-```
-{ params, query, body, headers }
-```
-
-Supports per-route:
-
-- delays  
-- faults  
-- dynamic replies  
-
-# License
+## License
 
 MIT

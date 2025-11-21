@@ -26,7 +26,7 @@ export function tokens(input) {
 }
 
 /**
- * Jaro–Winkler distance implementation.
+ * Jaro-Winkler distance implementation.
  * Returns a score in [0, 1] where 1 is an exact match.
  */
 export function jaroWinkler(a, b) {

@@ -1,42 +1,42 @@
 import { sleep } from "./util.js";
 
-export function shouldApply(when = {}, ctx = {}) {
+export function shouldApply(when = {}, context = {}) {
   if (!when) return true;
-  if (when.env && ctx.env !== when.env) return false;
-  if (when.testTag && ctx.testTag !== when.testTag) return false;
-  if (when.provider && ctx.provider !== when.provider) return false;
-  if (when.model && ctx.model !== when.model) return false;
-  if (typeof when.stream === "boolean" && !!ctx.stream !== when.stream)
+  if (when.env && context.env !== when.env) return false;
+  if (when.testTag && context.testTag !== when.testTag) return false;
+  if (when.provider && context.provider !== when.provider) return false;
+  if (when.model && context.model !== when.model) return false;
+  if (typeof when.stream === "boolean" && !!context.stream !== when.stream)
     return false;
   if (when.headers) {
     for (const [k, v] of Object.entries(when.headers)) {
-      if (ctx.headers?.[k] !== v) return false;
+      if (context.headers?.[k] !== v) return false;
     }
   }
   if (when.params) {
     for (const [k, v] of Object.entries(when.params)) {
-      if (ctx.params?.[k] !== v) return false;
+      if (context.params?.[k] !== v) return false;
     }
   }
   return true;
 }
 
-export function pickFault(faults = [], ctx = {}) {
+export function pickFault(faults = [], context = {}) {
   for (const fault of faults) {
-    if (!shouldApply(fault.when, ctx)) continue;
+    if (!shouldApply(fault.when, context)) continue;
     const ratio = fault.ratio ?? 1;
     if (Math.random() <= ratio) return fault;
   }
   return null;
 }
 
-export function latencyMs(profile = {}, ctx = {}) {
+export function latencyMs(profile = {}, context = {}) {
   let mean = profile.meanMs ?? 100;
   let p95 = profile.p95Ms ?? 300;
 
   if (profile.overrides) {
     for (const override of profile.overrides) {
-      if (shouldApply(override.when, ctx)) {
+      if (shouldApply(override.when, context)) {
         mean = override.meanMs ?? mean;
         p95 = override.p95Ms ?? p95;
       }
@@ -49,15 +49,15 @@ export function latencyMs(profile = {}, ctx = {}) {
 
 export async function applyFaultOrLatency(
   caseOpt = {},
-  ctx,
+  context,
   res,
   payloadSender
 ) {
   const { latency = {}, faults = [] } = caseOpt;
-  const delay = latencyMs(latency, ctx);
+  const delay = latencyMs(latency, context);
   if (delay) await sleep(delay);
 
-  const fault = pickFault(faults, ctx);
+  const fault = pickFault(faults, context);
   if (!fault) return await payloadSender();
 
   switch (fault.kind) {
@@ -96,7 +96,7 @@ export async function applyFaultOrLatency(
     }
     case "STREAM_DROP_AFTER":
     case "STREAM_DUPLICATE_CHUNK":
-      ctx._fault = fault;
+      context._fault = fault;
       return await payloadSender();
     default:
       return await payloadSender();

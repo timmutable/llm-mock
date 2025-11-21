@@ -8,6 +8,7 @@ export function extractUserTextFromOpenAI(body) {
     return lastUser.content.map((c) => c?.text || "").join(" ");
   return "";
 }
+
 export function openAIResponse({ model, text }) {
   return {
     id: "chatcmpl_mock_" + Math.random().toString(36).slice(2),
@@ -28,15 +29,19 @@ export function openAIResponse({ model, text }) {
     },
   };
 }
+
 export function extractUserTextFromResponses(body) {
   const inp = body?.input;
   if (typeof inp === "string") return inp;
-  if (Array.isArray(inp))
+  if (Array.isArray(inp)) {
     return inp
       .map((x) => (typeof x === "string" ? x : x?.text || ""))
       .join(" ");
+  }
+
   return "";
 }
+
 export function responsesShape({ model, text }) {
   const id = "resp_mock_" + Math.random().toString(36).slice(2);
   const msgId = "msg_mock_" + Math.random().toString(36).slice(2);
@@ -61,6 +66,7 @@ export function responsesShape({ model, text }) {
     },
   };
 }
+
 export function embeddingsShape({ model, vecs }) {
   return {
     object: "list",
@@ -75,6 +81,7 @@ export function extractUserTextFromGemini(body) {
   const parts = body?.contents?.[0]?.parts || [];
   return parts.map((p) => p.text || "").join(" ");
 }
+
 export function geminiResponseShape({ model, text }) {
   return {
     candidates: [

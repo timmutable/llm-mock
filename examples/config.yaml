@@ -1,0 +1,72 @@
+server:
+  port: 11434
+  delayMs: 0
+
+useScenario: checkout-graph
+
+defaults:
+  fallback: "No mock available."
+
+scenarios:
+  - id: checkout-graph
+    start: collect-name
+    steps:
+      collect-name:
+        branches:
+          - when: "my name is {{name}}"
+            guard:
+              op: includes
+              var: name
+              value: "declined"
+            reply: "I'm sorry, your application has been declined (mock)."
+            next: end-declined
+
+          - when: "my name is {{name}}"
+            guard:
+              op: includes
+              var: name
+              value: "approved"
+            reply: "Great news, your application is approved (mock)!"
+            next: end-approved
+
+          - when: "my name is {{name}}"
+            replyTemplate: "Thanks {{name}}, let's continue your application, what is your address?"
+            next: collect-address
+
+      collect-address:
+        branches:
+          - when: "my address is {{address}}"
+            replyTemplate: "Got it. We’ll send a written response to {{address}}."
+            next: end-pending
+
+      end-declined:
+        final: true
+
+      end-approved:
+        final: true
+
+      end-pending:
+        final: true
+
+cases:
+  - id: explain-simple
+    pattern: "explain {{topic}} simply"
+    replyTemplate: "Simple explanation of {{topic}}."
+
+httpMocks:
+  - id: github-dispatch
+    method: POST
+    path: /github/actions/dispatch
+    status: 200
+    body:
+      runId: mock-run-123
+      status: dispatched
+
+  - id: s3-put
+    method: PUT
+    path: /s3/bucket/{{params.bucket}}/object/{{params.key}}
+    status: 200
+    bodyTemplate:
+      ok: true
+      bucket: "{{params.bucket}}"
+      key: "{{params.key}}"

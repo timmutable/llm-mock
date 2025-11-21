@@ -13,7 +13,7 @@
   },
   "scripts": {
     "start": "node ./bin/llm-mock.js ./examples/config.mjs",
-    "dev": "node ./bin/llm-mock.js ./examples/config.mjs --env local --scenario checkout-graph",
+    "dev": "node ./bin/llm-mock.js ./examples/config.yaml --env local --scenario checkout-graph",
     "test": "node --test --experimental-test-coverage"
   },
   "keywords": [
@@ -21,9 +21,9 @@
     "mock",
     "llm-mock",
     "mock-llm",
+    "llm testing",
     "testing",
     "openai",
-    "anthropic",
     "gemini",
     "ollama",
     "scenarios",
@@ -38,9 +38,11 @@
     "node": ">=18.17"
   },
   "dependencies": {
+    "@google/genai": "^1.30.0",
     "ajv": "^8.17.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "js-yaml": "^4.1.1",
     "minimist": "^1.2.8",
     "uuid": "^9.0.1"
   }

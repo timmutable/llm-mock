@@ -1,0 +1,200 @@
+{
+  "server": {
+    "port": 11434,
+    "delayMs": 0
+  },
+  "useScenario": "happy-path",
+  "defaults": {
+    "fallback": "No mock available."
+  },
+  "httpMocks": [
+    {
+      "id": "github-dispatch",
+      "method": "POST",
+      "path": "/github/actions/dispatch",
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "runId": "mock-run-123"
+      }
+    },
+    {
+      "id": "github-webhook",
+      "method": "POST",
+      "path": "/webhooks/experiment-complete",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "experimentId": "exp-mock-123"
+      }
+    },
+    {
+      "id": "s3-upload",
+      "method": "PUT",
+      "path": "/s3/upload",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "bucket": "mock-bucket",
+        "key": "mock-key"
+      }
+    }
+  ],
+  "httpProfiles": {
+    "github-fail": [
+      {
+        "id": "github-dispatch",
+        "method": "POST",
+        "path": "/github/actions/dispatch",
+        "status": 500,
+        "body": {
+          "status": "error",
+          "message": "Simulated GitHub failure (mock)."
+        }
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "happy-path",
+      "httpProfile": "default",
+      "start": "ask-intent",
+      "steps": {
+        "ask-intent": [
+          {
+            "when": "i want to create an experiment",
+            "sequence": [
+              {
+                "kind": "chat",
+                "reply": "Great, let's create an experiment."
+              },
+              {
+                "kind": "chat",
+                "reply": "First, what should we call this experiment?"
+              }
+            ],
+            "next": "collect-name"
+          }
+        ],
+        "collect-name": [
+          {
+            "when": "the experiment name is {{expName}}",
+            "sequence": [
+              {
+                "kind": "chat",
+                "replyTemplate": "Nice, '{{expName}}' sounds interesting."
+              },
+              {
+                "kind": "chat",
+                "reply": "I'll trigger the GitHub workflow to set it up."
+              }
+            ],
+            "next": "trigger-github"
+          }
+        ],
+        "trigger-github": [
+          {
+            "when": "run the github workflow",
+            "sequence": [
+              {
+                "kind": "chat",
+                "reply": "Triggering GitHub action (mock)..."
+              },
+              {
+                "kind": "chat",
+                "reply": "The action completed successfully. Your experiment is ready."
+              }
+            ],
+            "next": "end-success"
+          },
+          {
+            "when": "run the github workflow and force failure",
+            "httpProfile": "github-fail",
+            "sequence": [
+              {
+                "kind": "chat",
+                "reply": "Triggering GitHub action (mock, failure profile)..."
+              },
+              {
+                "kind": "chat",
+                "reply": "The GitHub workflow failed (mock). Please try again later."
+              }
+            ],
+            "next": "end-failed"
+          }
+        ],
+        "end-success": {
+          "final": true
+        },
+        "end-failed": {
+          "final": true
+        }
+      }
+    },
+    {
+      "id": "github-action-fail",
+      "httpProfile": "github-fail",
+      "start": "ask-intent",
+      "steps": {
+        "ask-intent": [
+          {
+            "when": "i want to create an experiment",
+            "sequence": [
+              {
+                "kind": "chat",
+                "reply": "Okay, let's create an experiment (failure scenario)."
+              },
+              {
+                "kind": "chat",
+                "reply": "What should we call this experiment?"
+              }
+            ],
+            "next": "collect-name"
+          }
+        ],
+        "collect-name": [
+          {
+            "when": "the experiment name is {{expName}}",
+            "sequence": [
+              {
+                "kind": "chat",
+                "replyTemplate": "Got it, '{{expName}}'."
+              },
+              {
+                "kind": "chat",
+                "reply": "I'll trigger the GitHub workflow, but this scenario is configured to fail."
+              }
+            ],
+            "next": "trigger-github"
+          }
+        ],
+        "trigger-github": [
+          {
+            "when": "run the github workflow",
+            "sequence": [
+              {
+                "kind": "chat",
+                "reply": "Triggering GitHub action (failure profile)..."
+              },
+              {
+                "kind": "chat",
+                "reply": "The GitHub workflow failed (mock) as expected for this scenario."
+              }
+            ],
+            "next": "end-failed"
+          }
+        ],
+        "end-failed": {
+          "final": true
+        }
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "explain-simple",
+      "pattern": "explain {{topic}} simply",
+      "replyTemplate": "Simple explanation of {{topic}}."
+    }
+  ]
+}

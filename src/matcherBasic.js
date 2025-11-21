@@ -8,7 +8,7 @@ export function matchExact(input, pattern) {
 }
 
 /**
- * Fuzzy similarity score combining Jaro–Winkler and token overlap.
+ * Fuzzy similarity score combining Jaro-Winkler and token overlap.
  * Returns a score in [0, 1] where higher is more similar.
  */
 export function scoreFuzzy(input, pattern) {
@@ -18,7 +18,7 @@ export function scoreFuzzy(input, pattern) {
   const similarity = jaroWinkler(normalizedInput, normalizedPattern);
   const overlap = tokOverlapScore(normalizedInput, normalizedPattern);
 
-  // Weighted blend – tuned by hand to be reasonably forgiving
+  // Weighted blend, tuned by hand to be reasonably forgiving
   return 0.6 * similarity + 0.4 * overlap;
 }
 
